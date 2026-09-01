@@ -59,7 +59,7 @@ const CameraToPdf = () => {
       completedCrop.height * scaleY
     );
 
-    const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+    const base64Image = canvas.toDataURL('image/jpeg', 1.0);
     setCroppedImageUrl(base64Image);
   };
 
@@ -115,7 +115,12 @@ const CameraToPdf = () => {
               audio={false}
               ref={webcamRef}
               screenshotFormat="image/jpeg"
-              videoConstraints={{ facingMode: "environment" }}
+              screenshotQuality={1}
+              videoConstraints={{ 
+                facingMode: "environment",
+                width: { ideal: 4096 },
+                height: { ideal: 2160 }
+              }}
               className="w-full max-w-2xl h-auto"
             />
           </div>
