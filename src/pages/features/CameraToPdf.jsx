@@ -1,79 +1,78 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import { PDFDocument } from 'pdf-lib';
-import { Camera, Download, Loader2, Check, RefreshCw } from 'lucide-react';
-import { loadOpenCV, detectDocument } from '../../utils/cvScanner';
+import ReactCrop from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
+import { Camera, Download, Loader2, RefreshCw, Scissors } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
 
 const CameraToPdf = () => {
   const webcamRef = useRef(null);
-  const imageRef = useRef(null);
-  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
   
-  const [isCvLoaded, setIsCvLoaded] = useState(false);
   const [photo, setPhoto] = useState(null);
-  const [processedPhotoUrl, setProcessedPhotoUrl] = useState(null);
+  const [crop, setCrop] = useState(null);
+  const [completedCrop, setCompletedCrop] = useState(null);
+  const [croppedImageUrl, setCroppedImageUrl] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  useEffect(() => {
-    loadOpenCV().then(() => {
-      setIsCvLoaded(true);
-    }).catch(err => {
-      console.error("OpenCV load error:", err);
-      // Fallback
-      setIsCvLoaded(true);
-    });
-  }, []);
 
-  const capture = React.useCallback(() => {
+  const capture = useCallback(() => {
     if (webcamRef.current) {
       const imageSrc = webcamRef.current.getScreenshot();
       setPhoto(imageSrc);
+      // Default crop taking most of the center
+      setCrop({
+        unit: '%',
+        width: 80,
+        height: 80,
+        x: 10,
+        y: 10
+      });
     }
   }, [webcamRef]);
 
-  const processImage = () => {
-    if (!photo || !isCvLoaded || !imageRef.current || !canvasRef.current) return;
-    
-    try {
-      detectDocument(imageRef.current, canvasRef.current);
-      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.9);
-      setProcessedPhotoUrl(dataUrl);
-    } catch (e) {
-      console.error("Processing error", e);
-      setProcessedPhotoUrl(photo); // fallback to original
-    }
+  const onImageLoad = (e) => {
+    imgRef.current = e.currentTarget;
   };
 
-  useEffect(() => {
-    if (photo && imageRef.current) {
-      // Need to wait for image to load before processing
-      const img = imageRef.current;
-      const doProcess = () => {
-        // Beri jeda agar React bisa melakukan render UI "Loading" terlebih dahulu
-        // sebelum OpenCV memonopoli CPU thread
-        setTimeout(() => {
-          processImage();
-        }, 150);
-      };
-      
-      if (img.complete) {
-        doProcess();
-      } else {
-        img.onload = doProcess;
-      }
-    }
-  }, [photo, isCvLoaded]);
+  const getCroppedImg = () => {
+    if (!completedCrop || !imgRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    const scaleX = imgRef.current.naturalWidth / imgRef.current.width;
+    const scaleY = imgRef.current.naturalHeight / imgRef.current.height;
+    
+    canvas.width = completedCrop.width * scaleX;
+    canvas.height = completedCrop.height * scaleY;
+    
+    const ctx = canvas.getContext('2d');
+    
+    ctx.drawImage(
+      imgRef.current,
+      completedCrop.x * scaleX,
+      completedCrop.y * scaleY,
+      completedCrop.width * scaleX,
+      completedCrop.height * scaleY,
+      0,
+      0,
+      completedCrop.width * scaleX,
+      completedCrop.height * scaleY
+    );
+
+    const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+    setCroppedImageUrl(base64Image);
+  };
 
   const generatePdf = async () => {
-    if (!processedPhotoUrl) return;
+    const finalImage = croppedImageUrl || photo; // Use cropped if exists, otherwise raw
+    if (!finalImage) return;
+    
     setIsProcessing(true);
     
     try {
       const pdfDoc = await PDFDocument.create();
       
-      // Convert data URL to bytes
-      const fetchResponse = await fetch(processedPhotoUrl);
+      const fetchResponse = await fetch(finalImage);
       const imageBytes = await fetchResponse.arrayBuffer();
       
       const pdfImage = await pdfDoc.embedJpg(imageBytes);
@@ -87,7 +86,7 @@ const CameraToPdf = () => {
       
       // Reset
       setPhoto(null);
-      setProcessedPhotoUrl(null);
+      setCroppedImageUrl(null);
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Gagal membuat PDF.');
@@ -98,22 +97,18 @@ const CameraToPdf = () => {
 
   const retake = () => {
     setPhoto(null);
-    setProcessedPhotoUrl(null);
+    setCroppedImageUrl(null);
+    setCompletedCrop(null);
   };
 
   return (
     <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Kamera ke PDF (Smart Scanner)</h2>
-        <p className="text-gray-500 mt-1">Ambil foto dokumen. Tepi akan dideteksi dan dipotong otomatis.</p>
+        <h2 className="text-2xl font-bold text-gray-900">Kamera ke PDF (Ringan)</h2>
+        <p className="text-gray-500 mt-1">Ambil foto dokumen dan potong (crop) secara manual agar tidak membebani HP Anda.</p>
       </div>
 
-      {!isCvLoaded ? (
-        <div className="flex flex-col items-center py-20 text-gray-500">
-          <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
-          <p>Memuat mesin pemindai pintar (OpenCV)...</p>
-        </div>
-      ) : !photo ? (
+      {!photo ? (
         <div className="flex flex-col items-center">
           <div className="rounded-xl overflow-hidden shadow-lg mb-6 border-4 border-gray-100 relative">
             <Webcam
@@ -123,8 +118,6 @@ const CameraToPdf = () => {
               videoConstraints={{ facingMode: "environment" }}
               className="w-full max-w-2xl h-auto"
             />
-            {/* Simple overlay guide */}
-            <div className="absolute inset-0 border-4 border-emerald-500/30 m-8 rounded-lg pointer-events-none"></div>
           </div>
           
           <button
@@ -134,27 +127,21 @@ const CameraToPdf = () => {
             <Camera size={24} /> Ambil Gambar
           </button>
         </div>
-      ) : (
+      ) : !croppedImageUrl ? (
         <div className="flex flex-col items-center">
           <p className="text-sm text-gray-500 mb-4 text-center">
-            Hasil pindaian otomatis (auto-crop)
+            Sesuaikan kotak pemotong pada dokumen Anda.
           </p>
           
-          <div className="hidden">
-            <img ref={imageRef} src={photo} alt="Original" crossOrigin="anonymous" />
+          <div className="max-w-2xl w-full mb-8 rounded-xl overflow-hidden border border-gray-200">
+            <ReactCrop
+              crop={crop}
+              onChange={c => setCrop(c)}
+              onComplete={c => setCompletedCrop(c)}
+            >
+              <img src={photo} onLoad={onImageLoad} alt="Tangkapan" className="w-full h-auto" />
+            </ReactCrop>
           </div>
-          
-          <canvas ref={canvasRef} className="hidden" />
-          
-          {processedPhotoUrl ? (
-            <img src={processedPhotoUrl} alt="Processed" className="max-w-2xl w-full h-auto rounded-xl shadow-md border border-gray-200 mb-8" />
-          ) : (
-            <div className="h-64 w-full max-w-2xl flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 mb-8">
-              <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
-              <p className="text-gray-600 font-medium">Mendeteksi tepi & meluruskan dokumen...</p>
-              <p className="text-xs text-gray-400 mt-2">Ini mungkin memakan waktu beberapa detik</p>
-            </div>
-          )}
           
           <div className="flex gap-4">
             <button
@@ -164,8 +151,29 @@ const CameraToPdf = () => {
               <RefreshCw size={20} /> Ulangi
             </button>
             <button
+              onClick={getCroppedImg}
+              disabled={!completedCrop?.width || !completedCrop?.height}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              <Scissors size={20} /> Potong Gambar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center">
+          <p className="text-sm text-gray-500 mb-4 text-center">Hasil akhir yang akan disimpan</p>
+          <img src={croppedImageUrl} alt="Hasil crop" className="max-w-2xl w-full h-auto rounded-xl shadow-md border border-gray-200 mb-8" />
+          
+          <div className="flex gap-4">
+            <button
+              onClick={retake}
+              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              <RefreshCw size={20} /> Ambil Baru
+            </button>
+            <button
               onClick={generatePdf}
-              disabled={isProcessing || !processedPhotoUrl}
+              disabled={isProcessing}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               {isProcessing ? (
