@@ -4,11 +4,13 @@ import { PDFDocument } from 'pdf-lib';
 import SignaturePad from 'react-signature-canvas';
 import Draggable from 'react-draggable';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { Download, UploadCloud, X, Loader2, File, Edit3, Trash2, Image as ImageIcon, PenTool, ChevronLeft, ChevronRight } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 const SignPdf = () => {
   const [file, setFile] = useState(null);
@@ -123,7 +125,7 @@ const SignPdf = () => {
           return;
         }
         
-        const canvas = sigPad.current.getTrimmedCanvas();
+        const canvas = sigPad.current.getCanvas();
         if (!canvas) {
           alert("Gagal memotong area tanda tangan.");
           return;

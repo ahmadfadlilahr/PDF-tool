@@ -2,12 +2,14 @@ import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { Download, UploadCloud, X, Loader2, Minimize2, File } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
 
 // Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 const CompressPdf = () => {
   const [file, setFile] = useState(null);
