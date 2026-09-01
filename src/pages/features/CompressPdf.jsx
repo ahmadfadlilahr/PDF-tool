@@ -6,7 +6,7 @@ import { Download, UploadCloud, X, Loader2, Minimize2, File } from 'lucide-react
 import { downloadPdf } from '../../utils/pdfHelpers';
 
 // Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 const CompressPdf = () => {
   const [file, setFile] = useState(null);

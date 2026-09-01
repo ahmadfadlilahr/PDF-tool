@@ -7,7 +7,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { Download, UploadCloud, X, Loader2, File, Edit3, Trash2, Image as ImageIcon, PenTool, ChevronLeft, ChevronRight } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 const SignPdf = () => {
   const [file, setFile] = useState(null);
@@ -26,6 +26,7 @@ const SignPdf = () => {
   const canvasRef = useRef(null);
   const sigPad = useRef({});
   const pdfDocumentRef = useRef(null);
+  const draggableRef = useRef(null);
 
   const onDropPdf = useCallback(async (acceptedFiles) => {
     if (acceptedFiles[0]) {
@@ -140,11 +141,10 @@ const SignPdf = () => {
       const signatureBytes = await fetchResponse.arrayBuffer();
       
       let signatureImageEmbed;
-      // Basic check for PNG vs JPG signature
-      if (finalSignatureUrl.startsWith('data:image/jpeg') || (uploadedSignature && uploadedSignature.type === 'image/jpeg')) {
-        signatureImageEmbed = await pdfDoc.embedJpg(signatureBytes);
-      } else {
+      try {
         signatureImageEmbed = await pdfDoc.embedPng(signatureBytes);
+      } catch (e) {
+        signatureImageEmbed = await pdfDoc.embedJpg(signatureBytes);
       }
       
       // Calculate signature size in PDF coordinates
@@ -319,8 +319,8 @@ const SignPdf = () => {
           >
             <canvas ref={canvasRef} className="absolute top-0 left-0" />
             
-            <Draggable bounds="parent" position={sigPosition} onDrag={handleDrag}>
-              <div className="absolute cursor-move border border-dashed border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors p-1" style={{ zIndex: 10 }}>
+            <Draggable bounds="parent" position={sigPosition} onDrag={handleDrag} nodeRef={draggableRef}>
+              <div ref={draggableRef} className="absolute cursor-move border border-dashed border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors p-1" style={{ zIndex: 10 }}>
                 <img 
                   id="draggable-sig"
                   src={finalSignatureUrl} 
