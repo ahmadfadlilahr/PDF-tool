@@ -49,10 +49,18 @@ const CameraToPdf = () => {
     if (photo && imageRef.current) {
       // Need to wait for image to load before processing
       const img = imageRef.current;
+      const doProcess = () => {
+        // Beri jeda agar React bisa melakukan render UI "Loading" terlebih dahulu
+        // sebelum OpenCV memonopoli CPU thread
+        setTimeout(() => {
+          processImage();
+        }, 150);
+      };
+      
       if (img.complete) {
-        processImage();
+        doProcess();
       } else {
-        img.onload = processImage;
+        img.onload = doProcess;
       }
     }
   }, [photo, isCvLoaded]);
@@ -141,8 +149,10 @@ const CameraToPdf = () => {
           {processedPhotoUrl ? (
             <img src={processedPhotoUrl} alt="Processed" className="max-w-2xl w-full h-auto rounded-xl shadow-md border border-gray-200 mb-8" />
           ) : (
-            <div className="h-64 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+            <div className="h-64 w-full max-w-2xl flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 mb-8">
+              <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
+              <p className="text-gray-600 font-medium">Mendeteksi tepi & meluruskan dokumen...</p>
+              <p className="text-xs text-gray-400 mt-2">Ini mungkin memakan waktu beberapa detik</p>
             </div>
           )}
           
