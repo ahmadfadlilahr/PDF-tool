@@ -1,20 +1,47 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { PDFDocument } from 'pdf-lib';
 import SignaturePad from 'react-signature-canvas';
-import { Download, UploadCloud, X, Loader2, File, Edit3, Trash2, Image as ImageIcon, PenTool } from 'lucide-react';
+import Draggable from 'react-draggable';
+import * as pdfjsLib from 'pdfjs-dist';
+import { Download, UploadCloud, X, Loader2, File, Edit3, Trash2, Image as ImageIcon, PenTool, ChevronLeft, ChevronRight } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const SignPdf = () => {
   const [file, setFile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [signMode, setSignMode] = useState('draw'); // 'draw' or 'upload'
   const [uploadedSignature, setUploadedSignature] = useState(null);
+  const [finalSignatureUrl, setFinalSignatureUrl] = useState(null);
   
+  // PDF Preview State
+  const [pdfNumPages, setPdfNumPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pdfRenderScale, setPdfRenderScale] = useState(1);
+  const [pdfPageDimensions, setPdfPageDimensions] = useState({ width: 0, height: 0 });
+  const [sigPosition, setSigPosition] = useState({ x: 50, y: 50 });
+  
+  const canvasRef = useRef(null);
   const sigPad = useRef({});
+  const pdfDocumentRef = useRef(null);
 
-  const onDropPdf = useCallback((acceptedFiles) => {
-    if (acceptedFiles[0]) setFile(acceptedFiles[0]);
+  const onDropPdf = useCallback(async (acceptedFiles) => {
+    if (acceptedFiles[0]) {
+      setFile(acceptedFiles[0]);
+      setCurrentPage(1);
+      // Load PDF for preview
+      try {
+        const fileUrl = URL.createObjectURL(acceptedFiles[0]);
+        const loadingTask = pdfjsLib.getDocument(fileUrl);
+        const pdf = await loadingTask.promise;
+        pdfDocumentRef.current = pdf;
+        setPdfNumPages(pdf.numPages);
+      } catch (err) {
+        console.error("Error loading PDF preview", err);
+      }
+    }
   }, []);
 
   const onDropSignature = useCallback((acceptedFiles) => {
@@ -39,79 +66,119 @@ const SignPdf = () => {
     noClick: uploadedSignature !== null
   });
 
+  // Render PDF Page
+  useEffect(() => {
+    const renderPage = async () => {
+      if (!pdfDocumentRef.current || !canvasRef.current || !finalSignatureUrl) return;
+      
+      try {
+        const page = await pdfDocumentRef.current.getPage(currentPage);
+        
+        // Calculate scale to fit container (max width 600px for preview)
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const containerWidth = Math.min(window.innerWidth - 64, 800); 
+        const scale = containerWidth / unscaledViewport.width;
+        setPdfRenderScale(scale);
+        
+        const viewport = page.getViewport({ scale });
+        setPdfPageDimensions({ width: viewport.width, height: viewport.height });
+        
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        await page.render({
+          canvasContext: context,
+          viewport: viewport
+        }).promise;
+      } catch (err) {
+        console.error("Error rendering page", err);
+      }
+    };
+    
+    renderPage();
+  }, [currentPage, finalSignatureUrl]);
+
   const clearSignature = () => {
-    if (sigPad.current && sigPad.current.clear) {
-      sigPad.current.clear();
-    }
+    if (sigPad.current && sigPad.current.clear) sigPad.current.clear();
   };
 
   const clearUploadedSignature = () => {
     setUploadedSignature(null);
   };
 
+  const confirmSignature = () => {
+    if (signMode === 'draw') {
+      if (sigPad.current.isEmpty()) {
+        alert("Gambar tanda tangan terlebih dahulu.");
+        return;
+      }
+      setFinalSignatureUrl(sigPad.current.getTrimmedCanvas().toDataURL('image/png'));
+    } else {
+      if (!uploadedSignature) {
+        alert("Unggah gambar terlebih dahulu.");
+        return;
+      }
+      setFinalSignatureUrl(uploadedSignature.preview);
+    }
+  };
+
+  const handleDrag = (e, data) => {
+    setSigPosition({ x: data.x, y: data.y });
+  };
+
   const addSignature = async () => {
-    if (!file) return;
-    
-    let signatureImageEmbed;
-    let width, height;
-    
+    if (!file || !finalSignatureUrl) return;
     setIsProcessing(true);
     
     try {
       const fileBytes = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(fileBytes);
       
-      if (signMode === 'draw') {
-        if (sigPad.current.isEmpty()) {
-          alert("Silakan gambar tanda tangan Anda terlebih dahulu.");
-          setIsProcessing(false);
-          return;
-        }
-        // Get signature image as PNG base64
-        const signatureDataUrl = sigPad.current.getTrimmedCanvas().toDataURL('image/png');
-        const signatureBytes = await fetch(signatureDataUrl).then(res => res.arrayBuffer());
-        
-        signatureImageEmbed = await pdfDoc.embedPng(signatureBytes);
-        const scaled = signatureImageEmbed.scale(0.5); // scale it down
-        width = scaled.width;
-        height = scaled.height;
+      const fetchResponse = await fetch(finalSignatureUrl);
+      const signatureBytes = await fetchResponse.arrayBuffer();
+      
+      let signatureImageEmbed;
+      // Basic check for PNG vs JPG signature
+      if (finalSignatureUrl.startsWith('data:image/jpeg') || (uploadedSignature && uploadedSignature.type === 'image/jpeg')) {
+        signatureImageEmbed = await pdfDoc.embedJpg(signatureBytes);
       } else {
-        if (!uploadedSignature) {
-          alert("Silakan unggah gambar tanda tangan Anda.");
-          setIsProcessing(false);
-          return;
-        }
-        const signatureBytes = await uploadedSignature.arrayBuffer();
-        
-        if (uploadedSignature.type === 'image/jpeg') {
-          signatureImageEmbed = await pdfDoc.embedJpg(signatureBytes);
-        } else {
-          signatureImageEmbed = await pdfDoc.embedPng(signatureBytes);
-        }
-        
-        // Scale to a reasonable size (e.g., max width 150px)
-        const scaleFactor = 150 / signatureImageEmbed.width;
-        width = signatureImageEmbed.width * scaleFactor;
-        height = signatureImageEmbed.height * scaleFactor;
+        signatureImageEmbed = await pdfDoc.embedPng(signatureBytes);
       }
       
-      const pages = pdfDoc.getPages();
-      const lastPage = pages[pages.length - 1];
-      const { width: pageWidth } = lastPage.getSize();
+      // Calculate signature size in PDF coordinates
+      const sigImgElement = document.getElementById('draggable-sig');
+      const visualSigWidth = sigImgElement.offsetWidth;
+      const visualSigHeight = sigImgElement.offsetHeight;
       
-      // Place signature at the bottom right of the last page
-      lastPage.drawImage(signatureImageEmbed, {
-        x: pageWidth - width - 50,
-        y: 50,
-        width,
-        height,
+      // Scale back to original PDF size
+      const pdfSigWidth = visualSigWidth / pdfRenderScale;
+      const pdfSigHeight = visualSigHeight / pdfRenderScale;
+      
+      const pdfX = sigPosition.x / pdfRenderScale;
+      const pdfY = sigPosition.y / pdfRenderScale;
+      
+      const pages = pdfDoc.getPages();
+      const targetPage = pages[currentPage - 1];
+      const { height: pageHeight } = targetPage.getSize();
+      
+      // PDF coordinate system originates from Bottom-Left. DOM is Top-Left.
+      // So PDF Y = PageHeight - DOM_Y - SignatureHeight
+      const finalY = pageHeight - pdfY - pdfSigHeight;
+      
+      targetPage.drawImage(signatureImageEmbed, {
+        x: pdfX,
+        y: finalY,
+        width: pdfSigWidth,
+        height: pdfSigHeight,
       });
       
-      const pdfBytes = await pdfDoc.save();
-      downloadPdf(pdfBytes, `signed-${file.name}`);
+      const pdfBytesToSave = await pdfDoc.save();
+      downloadPdf(pdfBytesToSave, `signed-${file.name}`);
     } catch (error) {
       console.error('Error signing PDF:', error);
-      alert('Gagal menambahkan tanda tangan. Pastikan gambar valid.');
+      alert('Gagal menambahkan tanda tangan.');
     } finally {
       setIsProcessing(false);
     }
@@ -120,8 +187,8 @@ const SignPdf = () => {
   return (
     <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Tanda Tangan PDF</h2>
-        <p className="text-gray-500 mt-1">Gambar secara langsung atau unggah gambar tanda tangan Anda.</p>
+        <h2 className="text-2xl font-bold text-gray-900">Tanda Tangan PDF Interaktif</h2>
+        <p className="text-gray-500 mt-1">Gambar atau unggah tanda tangan Anda, lalu letakkan di posisi yang Anda inginkan.</p>
       </div>
 
       {!file ? (
@@ -132,9 +199,9 @@ const SignPdf = () => {
           <input {...getPdfInputProps()} />
           <UploadCloud className="mx-auto h-12 w-12 text-gray-400 mb-4" />
           <p className="text-lg font-medium text-gray-900">Tarik & Lepas PDF di sini</p>
-          <p className="text-sm text-gray-500 mt-1">atau klik untuk memilih file utama</p>
+          <p className="text-sm text-gray-500 mt-1">atau klik untuk memilih dokumen</p>
         </div>
-      ) : (
+      ) : !finalSignatureUrl ? (
         <div className="mt-4">
           <div className="flex items-center justify-between bg-gray-50 rounded-lg p-4 border border-gray-200 mb-8">
             <div className="flex items-center gap-3">
@@ -147,7 +214,7 @@ const SignPdf = () => {
               </div>
             </div>
             <button 
-              onClick={() => setFile(null)}
+              onClick={() => { setFile(null); setFinalSignatureUrl(null); }}
               className="text-gray-400 hover:text-red-500 p-2 transition-colors"
             >
               <X size={20} />
@@ -190,7 +257,7 @@ const SignPdf = () => {
               </div>
             ) : (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Pilih Gambar Tanda Tangan (PNG disarankan)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Pilih Gambar Tanda Tangan (PNG transparan disarankan)</label>
                 {!uploadedSignature ? (
                   <div 
                     {...getSigRootProps()} 
@@ -214,21 +281,72 @@ const SignPdf = () => {
               </div>
             )}
             
-            <p className="text-xs text-gray-400 mt-3 text-center">
-              Tanda tangan akan otomatis disesuaikan ukurannya dan diletakkan di sudut kanan bawah halaman terakhir.
-            </p>
+            <div className="mt-8 flex justify-end">
+              <button
+                onClick={confirmSignature}
+                className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-8 py-3 rounded-lg font-medium transition-colors"
+              >
+                Lanjut ke Penempatan &rarr;
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-col items-center">
+          <p className="text-gray-700 font-medium mb-4 text-center">Geser gambar tanda tangan ke posisi yang Anda inginkan</p>
+          
+          <div className="flex items-center gap-4 mb-4">
+            <button 
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="p-2 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <span className="font-medium text-sm">Halaman {currentPage} dari {pdfNumPages}</span>
+            <button 
+              onClick={() => setCurrentPage(Math.min(pdfNumPages, currentPage + 1))}
+              disabled={currentPage === pdfNumPages}
+              className="p-2 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+            >
+              <ChevronRight size={20} />
+            </button>
           </div>
 
-          <div className="flex justify-end">
+          <div 
+            className="relative border border-gray-300 shadow-md bg-gray-100 overflow-hidden select-none" 
+            style={{ width: pdfPageDimensions.width, height: pdfPageDimensions.height }}
+          >
+            <canvas ref={canvasRef} className="absolute top-0 left-0" />
+            
+            <Draggable bounds="parent" position={sigPosition} onDrag={handleDrag}>
+              <div className="absolute cursor-move border border-dashed border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors p-1" style={{ zIndex: 10 }}>
+                <img 
+                  id="draggable-sig"
+                  src={finalSignatureUrl} 
+                  alt="Signature" 
+                  className="max-w-[150px] max-h-[100px] object-contain pointer-events-none"
+                />
+              </div>
+            </Draggable>
+          </div>
+
+          <div className="mt-8 flex gap-4 w-full max-w-md">
+            <button
+              onClick={() => setFinalSignatureUrl(null)}
+              className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
+            >
+              Ubah Tanda Tangan
+            </button>
             <button
               onClick={addSignature}
               disabled={isProcessing}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               {isProcessing ? (
                 <><Loader2 size={20} className="animate-spin" /> Memproses...</>
               ) : (
-                <><Edit3 size={20} /> Bubuhkan & Unduh</>
+                <><Download size={20} /> Simpan PDF</>
               )}
             </button>
           </div>
