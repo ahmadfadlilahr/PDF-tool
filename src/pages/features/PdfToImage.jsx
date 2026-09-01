@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { Download, UploadCloud, X, Loader2, ImageIcon, File } from 'lucide-react';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const PdfToImage = () => {
   const [file, setFile] = useState(null);

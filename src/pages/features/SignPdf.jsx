@@ -4,10 +4,11 @@ import { PDFDocument } from 'pdf-lib';
 import SignaturePad from 'react-signature-canvas';
 import Draggable from 'react-draggable';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { Download, UploadCloud, X, Loader2, File, Edit3, Trash2, Image as ImageIcon, PenTool, ChevronLeft, ChevronRight } from 'lucide-react';
 import { downloadPdf } from '../../utils/pdfHelpers';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const SignPdf = () => {
   const [file, setFile] = useState(null);
@@ -110,18 +111,35 @@ const SignPdf = () => {
   };
 
   const confirmSignature = () => {
-    if (signMode === 'draw') {
-      if (sigPad.current.isEmpty()) {
-        alert("Gambar tanda tangan terlebih dahulu.");
-        return;
+    try {
+      if (signMode === 'draw') {
+        if (!sigPad.current || typeof sigPad.current.isEmpty !== 'function') {
+          console.error("SignaturePad ref is invalid", sigPad.current);
+          alert("Error internal: SignaturePad belum siap.");
+          return;
+        }
+        if (sigPad.current.isEmpty()) {
+          alert("Gambar tanda tangan terlebih dahulu.");
+          return;
+        }
+        
+        const canvas = sigPad.current.getTrimmedCanvas();
+        if (!canvas) {
+          alert("Gagal memotong area tanda tangan.");
+          return;
+        }
+        
+        setFinalSignatureUrl(canvas.toDataURL('image/png'));
+      } else {
+        if (!uploadedSignature) {
+          alert("Unggah gambar terlebih dahulu.");
+          return;
+        }
+        setFinalSignatureUrl(uploadedSignature.preview);
       }
-      setFinalSignatureUrl(sigPad.current.getTrimmedCanvas().toDataURL('image/png'));
-    } else {
-      if (!uploadedSignature) {
-        alert("Unggah gambar terlebih dahulu.");
-        return;
-      }
-      setFinalSignatureUrl(uploadedSignature.preview);
+    } catch (err) {
+      console.error(err);
+      alert("Error: " + err.message);
     }
   };
 
